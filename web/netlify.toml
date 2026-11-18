@@ -1,0 +1,6 @@
+# Despliegue Netlify de la app web del eBadge E87 (estatica, sin build).
+# Las cabeceras van en _headers (Netlify lo lee de la carpeta publicada aunque el deploy
+# se lance desde otro directorio con --dir).
+[build]
+  publish = "."
+  command = ""

@@ -1,0 +1,272 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Panel del E87</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:wght@400;700&family=Chakra+Petch:wght@500;600;700&display=swap" rel="stylesheet">
+<style>
+  /* Paleta sacada de la placa QX7413: máscara verde, pads ENIG dorados, serigrafía blanca. */
+  :root{
+    --mask:#0F4432;      /* fondo: máscara de soldadura */
+    --mask-up:#15563F;   /* superficies elevadas, campos */
+    --mask-deep:#0A3326; /* registro */
+    --trace:#2F6E57;     /* líneas finas, bordes */
+    --silk:#ECEFE4;      /* texto principal: serigrafía */
+    --copper:#A2B9AC;    /* texto secundario */
+    --pad:#D7B04A;       /* acción principal: pad dorado */
+    --pad-ink:#14281F;   /* texto sobre pad */
+    --fault:#E0604F;     /* error / firmware */
+    --ok:#7BD39A;
+    --display:"Chakra Petch", system-ui, sans-serif;
+    --body:"Atkinson Hyperlegible", system-ui, sans-serif;
+    --mono:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  }
+  *{box-sizing:border-box}
+  html{background:var(--mask)}
+  body{margin:0;background:var(--mask);color:var(--silk);font:15px/1.55 var(--body);-webkit-font-smoothing:antialiased}
+
+  .app{max-width:1200px;margin:0 auto;display:grid;grid-template-columns:minmax(320px,400px) 1fr;min-height:100vh}
+  .side{position:sticky;top:0;height:100vh;display:flex;flex-direction:column;padding:28px 28px 20px;border-right:1px solid var(--trace);
+        background-image:radial-gradient(circle,rgba(215,176,74,.09) 1.4px,transparent 1.9px);background-size:22px 22px}
+  .work{padding:28px 40px 60px;min-width:0}
+
+  h1{font:700 28px/1.1 var(--display);margin:0;letter-spacing:-.01em}
+  .lede{color:var(--copper);margin:6px 0 0;max-width:34ch}
+
+  /* La cara: el único elemento redondo de la página. */
+  .face{position:relative;width:min(100%,300px);aspect-ratio:1;margin:30px auto 22px}
+  .face canvas{width:100%;height:100%;display:block;border-radius:50%;background:#000;
+               box-shadow:0 0 0 9px #1B4A3A,0 0 0 10px var(--trace)}
+  .face::before{content:"";position:absolute;inset:-9px;border-radius:50%;pointer-events:none;
+                background:conic-gradient(var(--pad) var(--sweep),transparent 0);
+                -webkit-mask:radial-gradient(farthest-side,transparent calc(100% - 9px),#000 calc(100% - 8px));
+                mask:radial-gradient(farthest-side,transparent calc(100% - 9px),#000 calc(100% - 8px));
+                --sweep:0deg;opacity:0;transition:opacity .3s}
+  @property --sweep{syntax:"<angle>";inherits:false;initial-value:0deg}
+  .face[data-state="on"]::before{opacity:1;--sweep:360deg;animation:poweron .9s cubic-bezier(.3,.7,.2,1)}
+  @keyframes poweron{from{--sweep:0deg}to{--sweep:360deg}}
+
+  .link{display:flex;align-items:baseline;justify-content:space-between;gap:12px;margin-bottom:14px}
+  #status{font:600 16px/1.2 var(--display);display:flex;align-items:center;gap:8px}
+  #status::before{content:"";width:9px;height:9px;border-radius:50%;background:var(--copper);flex:none}
+  #status.ok::before{background:var(--ok);box-shadow:0 0 0 3px rgba(123,211,154,.18)}
+  #status.bad{color:var(--copper)}
+  #faceBat{color:var(--copper);font-size:14px;white-space:nowrap}
+
+  .logbox{margin-top:auto;display:flex;flex-direction:column;min-height:0;padding-top:18px}
+  .logbox h2{font:600 14px/1 var(--display);color:var(--copper);margin:0 0 8px}
+  #log{font:12px/1.5 var(--mono);background:var(--mask-deep);border:1px solid var(--trace);border-radius:4px;padding:8px 10px;
+       height:220px;overflow:auto;white-space:pre-wrap;color:#C9D6CE}
+  #log .ok{color:var(--ok)} #log .err{color:#FF8A7A} #log .warn{color:var(--pad)}
+
+  /* Secciones: separadas por una pista, sin tarjetas. */
+  section{padding:26px 0;border-top:1px solid var(--trace)}
+  section:first-of-type{border-top:0;padding-top:4px}
+  section h2{font:600 20px/1.2 var(--display);margin:0}
+  .desc{color:var(--copper);margin:4px 0 14px;max-width:62ch}
+  .note{color:var(--copper);font-size:14px;margin:0 0 20px;max-width:62ch}
+
+  .row{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:10px 0}
+  .field{display:grid;grid-template-columns:110px 1fr;gap:10px;align-items:center;margin:10px 0}
+  .field > label{color:var(--copper);font-size:14px}
+  .check{display:inline-flex;align-items:center;gap:8px;font-size:14px;cursor:pointer}
+  .hint{font-size:13px;color:var(--copper)}
+
+  button{font:600 14px/1 var(--display);letter-spacing:.01em;padding:10px 16px;border-radius:4px;cursor:pointer;
+         background:var(--pad);color:var(--pad-ink);border:1px solid var(--pad)}
+  button:hover:not(:disabled){filter:brightness(1.08)}
+  button.sec{background:transparent;color:var(--silk);border-color:var(--trace)}
+  button.sec:hover:not(:disabled){border-color:var(--copper);filter:none}
+  button.danger{background:transparent;color:var(--fault);border-color:var(--fault)}
+  button:disabled{background:transparent;color:var(--copper);border-color:var(--trace);opacity:.55;cursor:not-allowed}
+  button.swatch:disabled i{opacity:.6}
+  input[type=file]::file-selector-button{font:600 13px/1 var(--display);background:transparent;color:var(--silk);
+    border:1px solid var(--copper);border-radius:4px;padding:7px 12px;margin-right:10px;cursor:pointer}
+  .swatch{display:inline-flex;align-items:center;gap:7px}
+  .swatch i{width:12px;height:12px;border-radius:50%;display:inline-block;box-shadow:0 0 0 1px rgba(255,255,255,.25)}
+
+  input,select,textarea{font:inherit;color:var(--silk);background:var(--mask-up);border:1px solid var(--trace);border-radius:4px;padding:8px 10px}
+  input[type=text],select,textarea{width:100%;min-width:0}
+  textarea{min-height:70px;resize:vertical}
+  input[type=number]{width:90px}
+  input[type=file]{padding:6px;width:100%;min-width:0;overflow:hidden}
+  input[type=color]{width:44px;height:38px;padding:2px;cursor:pointer}
+  input[type=range],input[type=checkbox],progress{accent-color:var(--pad)}
+  input[type=range]{flex:1;min-width:140px}
+  progress{flex:1;min-width:120px;height:8px}
+
+  :focus-visible{outline:2px solid var(--pad);outline-offset:2px}
+
+  details.fw{margin-top:8px;border-left:2px solid var(--fault);padding-left:16px}
+  details.fw summary{font:600 20px/1.2 var(--display);cursor:pointer;color:var(--silk);list-style:none}
+  details.fw summary::-webkit-details-marker{display:none}
+  details.fw summary::after{content:" +";color:var(--fault)}
+  details.fw[open] summary::after{content:" −"}
+  .warn{color:var(--fault);max-width:62ch}
+
+  @media (max-width:860px){
+    .app{display:flex;flex-direction:column}
+    .side{display:contents}
+    .head,.link,.connect{padding-left:20px;padding-right:20px}
+    .head{order:1;padding-top:24px}
+    .face{order:2;width:min(78%,300px)}
+    .link{order:3} .connect{order:4;padding-bottom:20px;border-bottom:1px solid var(--trace)}
+    .work{order:5;padding:20px}
+    .logbox{order:6;padding:0 20px 28px}
+    .field{grid-template-columns:1fr}
+  }
+  @media (prefers-reduced-motion:reduce){
+    .face[data-state="on"]::before{animation:none}
+    .face::before{transition:none}
+  }
+</style>
+</head>
+<body>
+<div class="app">
+  <aside class="side">
+    <div class="head">
+      <h1>Panel del E87</h1>
+      <p class="lede">Conecta tu badge por Bluetooth y pon lo que quieras en su pantalla.</p>
+    </div>
+
+    <div class="face" id="face" data-state="off">
+      <canvas id="preview" width="368" height="368" aria-label="Lo que muestra ahora la pantalla del badge"></canvas>
+    </div>
+
+    <div class="link">
+      <span id="status" class="bad" role="status">sin conectar</span>
+      <span id="faceBat"></span>
+    </div>
+
+    <div class="connect">
+      <button id="connect">Conectar</button>
+      <div class="row">
+        <label class="check"><input type="checkbox" id="norauth"> Modo recuperación</label>
+      </div>
+      <p class="hint">Usa Chrome o Edge de escritorio. Si el badge no aparece, ponlo en modo pairing. El modo recuperación conecta sin autenticar, para volver a grabar el firmware original.</p>
+    </div>
+
+    <div class="logbox">
+      <h2>Registro</h2>
+      <div id="log" aria-live="polite"></div>
+    </div>
+  </aside>
+
+  <main class="work">
+    <p class="note">Pantalla, barra, avisos, dashboard y botón necesitan el firmware con display server instalado. La galería funciona también con el firmware original.</p>
+
+    <section>
+      <h2>Pantalla</h2>
+      <p class="desc">Pinta directo en la pantalla, sin guardar nada en el badge.</p>
+      <label class="check"><input type="checkbox" id="scrTake"> Tomar la pantalla (pausa el menú para que no pinte encima)</label>
+      <div class="row">
+        <button id="scrRed" class="sec swatch" disabled><i style="background:#ff0000"></i>Rojo</button>
+        <button id="scrGreen" class="sec swatch" disabled><i style="background:#00ff00"></i>Verde</button>
+        <button id="scrBlue" class="sec swatch" disabled><i style="background:#0000ff"></i>Azul</button>
+        <button id="scrBlack" class="sec swatch" disabled><i style="background:#000"></i>Negro</button>
+        <input type="color" id="scrColor" value="#d7b04a" aria-label="Color propio">
+        <button id="scrFill" disabled>Rellenar</button>
+      </div>
+      <div class="field">
+        <label for="scrImg">Imagen</label>
+        <input type="file" id="scrImg" accept="image/*">
+      </div>
+      <div class="row">
+        <label class="check"><input type="checkbox" id="imgDither" checked> Suavizar degradados</label>
+        <label class="check"><input type="checkbox" id="imgCircle" checked> Recortar en círculo</label>
+        <button id="scrSend" disabled>Enviar imagen</button>
+      </div>
+      <div class="row"><progress id="scrBar" value="0" max="1"></progress><span id="scrPct" class="hint">0%</span></div>
+    </section>
+
+    <section>
+      <h2>Barra y texto</h2>
+      <p class="desc">La barra se actualiza al instante mientras arrastras. El texto tarda algo más.</p>
+      <div class="row">
+        <input type="range" id="bbVal" min="0" max="100" value="50" aria-label="Progreso">
+        <span id="bbPct" class="hint">50%</span>
+        <input type="color" id="bbColor" value="#d7b04a" aria-label="Color de la barra">
+        <button id="bbSend" class="sec" disabled>Mostrar barra</button>
+      </div>
+      <div class="row">
+        <input type="text" id="scrText" value="EBadge" aria-label="Texto" style="flex:1;min-width:160px;width:auto">
+        <button id="scrTextSend" class="sec" disabled>Mostrar texto</button>
+      </div>
+    </section>
+
+    <section>
+      <h2>Avisos</h2>
+      <p class="desc">Pantallas listas: una notificación con icono o un mensaje grande que se ajusta solo.</p>
+      <div class="field"><label for="pIcon">Icono</label><input type="text" id="pIcon" value="🔔" style="width:90px"></div>
+      <div class="field"><label for="pTitle">Título</label><input type="text" id="pTitle" value="Build terminado"></div>
+      <div class="field"><label for="pText">Texto</label><input type="text" id="pText" value="Todos los tests pasan"></div>
+      <div class="row"><button id="pNotify" disabled>Mostrar notificación</button></div>
+      <div class="field"><label for="pBig">Mensaje</label><textarea id="pBig">No molestar, estoy grabando</textarea></div>
+      <div class="row"><button id="pBigSend" class="sec" disabled>Mostrar mensaje</button></div>
+    </section>
+
+    <section>
+      <h2>Dashboard</h2>
+      <p class="desc">Hora, fecha, batería y un mensaje. Solo envía lo que cambia, así que va casi en tiempo real.</p>
+      <div class="field"><label for="dashMsg">Mensaje</label><input type="text" id="dashMsg" placeholder="Opcional"></div>
+      <div class="row">
+        <button id="dashStart" disabled>Iniciar dashboard</button>
+        <button id="dashStop" class="sec" disabled>Parar</button>
+      </div>
+    </section>
+
+    <section>
+      <h2>Botón y batería</h2>
+      <p class="desc">Lee el estado del badge. Con el monitor activo, cada pulsación del botón físico aparece en el registro.</p>
+      <div class="row">
+        <button id="stRead" class="sec" disabled>Leer estado</button>
+        <label class="check"><input type="checkbox" id="stMon"> Monitor del botón</label>
+        <span id="stInfo" class="hint"></span>
+      </div>
+    </section>
+
+    <section>
+      <h2>Galería del badge</h2>
+      <p class="desc">Guarda texto, imágenes, un GIF o un vídeo en el badge, como la app oficial. Se queda aunque desconectes.</p>
+      <div class="field">
+        <label for="mode">Contenido</label>
+        <select id="mode">
+          <option value="text">Texto</option>
+          <option value="image">Imagen</option>
+          <option value="images">Varias imágenes en pase</option>
+          <option value="gif">GIF animado</option>
+          <option value="video">Vídeo</option>
+        </select>
+      </div>
+      <div class="field" id="row-text"><label for="text">Texto</label><textarea id="text">Hola</textarea></div>
+      <div class="field"><label for="fontsize">Tamaño (px)</label><input type="number" id="fontsize" value="44" min="16" max="120"></div>
+      <div class="field" id="row-files"><label for="files">Archivo</label><input type="file" id="files"></div>
+      <div class="field" id="row-secs"><label for="secs">Segundos por imagen</label><input type="number" id="secs" value="3" min="1" max="60"></div>
+      <div class="row">
+        <button id="send" disabled>Guardar en el badge</button>
+        <button id="download" class="sec">Descargar archivo</button>
+      </div>
+      <div class="row"><progress id="bar" value="0" max="1"></progress><span id="pct" class="hint">0%</span></div>
+    </section>
+
+    <section>
+      <details class="fw">
+        <summary>Firmware</summary>
+        <p class="warn">Grabar firmware reescribe el badge. Ten a mano la imagen original para volver atrás, y hazlo con el badge en su pantalla de actualización. "Comprobar" no escribe nada.</p>
+        <div class="field"><label for="fwfile">Archivo .ufw</label><input type="file" id="fwfile" accept=".ufw,.bin"></div>
+        <div class="row">
+          <button id="otaprobe" class="sec" disabled>Comprobar</button>
+          <button id="otaflash" class="danger" disabled>Grabar firmware</button>
+          <button id="otaspeed" class="sec" disabled>Medir velocidad</button>
+        </div>
+        <div class="row"><progress id="otabar" value="0" max="1"></progress><span id="otapct" class="hint">0%</span></div>
+      </details>
+    </section>
+  </main>
+</div>
+<script type="module" src="app.js"></script>
+</body>
+</html>

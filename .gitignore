@@ -1,0 +1,34 @@
+# --- NUNCA subir material propietario ni binarios de firmware ---
+# Firmware (OEM = copyright de JieLi/vendor; custom = derivado). Descárgalo/compílalo tú.
+*.ufw
+*.bin
+*.fw
+!**/loaderblobs/**           # (por si alguien añade blobs del tooling upstream aparte)
+# Volcados de flash y recursos descifrados
+*_plain.bin
+*_DECRYPTED.bin
+dump*.bin
+flash_*.bin
+# APK y decompilados (propietario)
+*.apk
+*.xapk
+*.dex
+jadx/
+apktool/
+# SDK de JieLi (clónalo tú)
+e_badge_*_sdk_*/
+# Datos privados del dispositivo / app
+*.mmkv
+chipkey*.bin
+# Claves / secretos
+*.pem
+*.key
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+# Node / varios
+node_modules/
+.DS_Store
+.netlify/

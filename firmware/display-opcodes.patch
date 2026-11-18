@@ -1,0 +1,103 @@
+--- a/SDK/apps/common/third_party_profile/jieli/rcsp/qix_ota_server.c	2026-11-18 10:09:19.722685900 +0100
++++ b/SDK/apps/common/third_party_profile/jieli/rcsp/qix_ota_server.c	2026-11-18 12:31:35.256731569 +0100
+@@ -160,7 +160,7 @@
+ #endif
+ 
+ /* Streaming RX buffer to reassemble Qix frames from the FD02 writes. */
+-static u8  qix_rx_buf[1100];  /* holds one 1024B chunk frame (6 hdr + 8 chunk-hdr + 1024) */
++static u8  qix_rx_buf[4096];  /* ampliado: tramas BLIT multi-línea (EBadge display server) */
+ static u16 qix_rx_len = 0;
+ /* dual_bank_update_write DMAs from this buffer to flash — the source MUST be 4-byte
+  * aligned (a pointer inside qix_rx_buf lands at +14, misaligned → flash write error
+@@ -290,9 +290,91 @@
+ }
+ 
+ /* Dispatch a complete, validated Qix frame. */
++
++/* ============================================================================
++ * Display server (EBadge web): opcodes Qix propios para pintar en el LCD por BLE.
++ *   0xE1 FILL_RECT : [x(2 LE)][y(2)][w(2)][h(2)][color(4 LE, RGB888 0xRRGGBB)] -> clear_screen
++ *   0xE0 BLIT      : [x(2)][y(2)][w(2)][h(2)][pixels RGB565 LE (w*h*2 bytes)] -> draw
++ * Responde cmd+1 (0xE2/0xE1) con [status] (0 = ok, !=0 = error).  NO toca flash.
++ * Nota: layout de lcd_interface replicado de apps/watch/include/ui/lcd/lcd_drive.h para no
++ * depender de su include path desde apps/common. El orden DEBE coincidir con ese header.
++ * ==========================================================================*/
++struct ebw_lcd_iface {
++    void (*init)(void *);
++    void (*get_screen_info)(void *);
++    void (*buffer_malloc)(u8 **, u32 *);
++    void (*buffer_free)(u8 *);
++    void (*draw)(u8 *buf, int xs, int xe, int ys, int ye);
++    void (*draw_continue)(u8 *buf, int xs, int xe, int ys, int ye);
++    void (*set_draw_area)(u16 xs, u16 xe, u16 ys, u16 ye);
++    void (*clear_screen)(u32 color, int xs, int xe, int ys, int ye);
++    int (*backlight_ctrl)(u8 on);
++    int (*power_ctrl)(u8 on);
++    void (*draw_page)(u8 *buf, u8 ps, u8 pl);
++};
++extern struct ebw_lcd_iface *lcd_get_hdl(void);
++
++#define QIX_CMD_FILL_RECT  0xE1
++#define QIX_CMD_BLIT       0xE0
++#define EBW_SCREEN_W       360
++#define EBW_SCREEN_H       360
++
++/* devuelve 1 si el frame era nuestro (lo haya pintado o rechazado), 0 si no. */
++static int qix_display_handle(u8 cmd, const u8 *p, u16 plen)
++{
++    if (cmd == 0xE7) {   /* TAKEOVER [v]: suspende(1)/reanuda(0) LVGL para ceder la pantalla al host */
++        extern void lvgl_ui_task_suspend_resume(unsigned char state);
++        if (plen >= 1) { lvgl_ui_task_suspend_resume(p[0]); }
++        u8 ack = plen ? p[0] : 0; qix_send_frame(0xE7, &ack, 1);
++        return 1;
++    }
++    if (cmd == 0xE9) {   /* QUERY -> 0xEA [battery%, key_value] (host polling, contexto BLE, seguro) */
++        extern u8 get_vbat_percent(void);
++        extern volatile u8 g_badge_adkey_kv;
++        u8 st[2] = { get_vbat_percent(), (u8)g_badge_adkey_kv };
++        qix_send_frame(0xEA, st, 2);
++        return 1;
++    }
++    if (cmd != QIX_CMD_FILL_RECT && cmd != QIX_CMD_BLIT) {
++        return 0;
++    }
++    struct ebw_lcd_iface *lcd = lcd_get_hdl();
++    u8 st = 1;  /* error por defecto */
++    if (lcd && plen >= 8) {
++        u16 x = p[0] | (p[1] << 8);
++        u16 y = p[2] | (p[3] << 8);
++        u16 w = p[4] | (p[5] << 8);
++        u16 h = p[6] | (p[7] << 8);
++        if (w && h && x + w <= EBW_SCREEN_W && y + h <= EBW_SCREEN_H) {
++            if (cmd == QIX_CMD_FILL_RECT && plen >= 12) {
++                u32 color = p[8] | (p[9] << 8) | (p[10] << 16) | ((u32)p[11] << 24);
++                if (lcd->clear_screen) {
++                    lcd->clear_screen(color, x, x + w - 1, y, y + h - 1);
++                    st = 0;
++                }
++            } else if (cmd == QIX_CMD_BLIT) {
++                u32 need = (u32)w * h * 2;  /* RGB565 */
++                if ((u32)(plen - 8) >= need && lcd->draw) {
++                    lcd->draw((u8 *)(p + 8), x, x + w - 1, y, y + h - 1);
++                    st = 0;
++                }
++            }
++        }
++    }
++    qix_send_frame(cmd + 1, &st, 1);   /* 0xE2 / 0xE1 ack */
++    return 1;
++}
++
+ static void qix_handle_frame(u8 cmd, const u8 *p, u16 plen)
+ {
+ #ifdef CONFIG_BADGE_MENU
++    /* EBadge web: opcodes de pantalla (FILL_RECT/BLIT) — antes que nada. */
++    if (qix_display_handle(cmd, p, plen)) {
++        return;
++    }
++#endif
++
++#ifdef CONFIG_BADGE_MENU
+     /* Raw-flash extension (erase/write/read/reboot of any partition + BLE lock of the
+      * Update screen). Handles 0xD0..0xD4; returns 1 when the frame belongs to it. */
+     extern int qix_raw_flash_handle(u8 cmd, const u8 *p, u16 plen);
